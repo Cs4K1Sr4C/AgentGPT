@@ -14,8 +14,106 @@ const LOCALES_DIR = path.join(ROOT_DIR, "public", "locales");
 const TRANSLATION_DIR = path.join(ROOT_DIR, "public", "locales", "translation");
 
 const REGEX = /translate\(['"`](.*?)['"`](,\s*['"`](.*?)['"`])?\)/g;
+const REGEX_WITHOUT_DEFAULT_TEXT_AND_NAMESPACE = /translate\(['"`](.*?)['"`](,['"`](.*?)['"`])?\)/g;
+const REGEX_WITH_DEFAULT_TEXT_AND_NAMESPACE =
+  /translate\(['"`](.*?)['"`],\s*['"`](.*?)['"`],\s*['"`](.*?)['"`]?\)/g;
+const NEWREGEX = /translate\(("|')[\w_]+("|'),\s?(".*?"|\w+)?\s*?,\s*?(".*?"|\w+)?\)/g;
 
 const collectAndTranslate = async (
+  dirPath,
+  sourceLanguageCode,
+  targetLanguageCode,
+  translationService,
+  translationMethod
+) => {
+  const files = fs.readdirSync(dirPath);
+  files.forEach(async (file) => {
+    const filePath = path.join(dirPath, file);
+    if (fs.statSync(filePath).isDirectory() && !filePath.includes("node_modules")) {
+      await collectAndTranslate(
+        filePath,
+        sourceLanguageCode,
+        targetLanguageCode,
+        translationService,
+        translationMethod
+      );
+    } else {
+      const extname = path.extname(filePath);
+      if (extname === ".ts" || extname === ".tsx" || extname === ".js" || extname === ".jsx") {
+        const content = fs.readFileSync(filePath, "utf-8");
+        let regex;
+        let defaultText = false;
+        if (REGEX_WITHOUT_DEFAULT_TEXT_AND_NAMESPACE.test(content)) {
+          regex = REGEX_WITHOUT_DEFAULT_TEXT_AND_NAMESPACE;
+        } else if (REGEX_WITH_DEFAULT_TEXT_AND_NAMESPACE.test(content)) {
+          regex = REGEX_WITH_DEFAULT_TEXT_AND_NAMESPACE;
+          defaultText = true;
+        } else if (NEWREGEX.test(content)) {
+          regex = NEWREGEX;
+        } else {
+          return;
+        }
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+          if ((regex = NEWREGEX)) {
+            console.log(match[0]);
+            console.log(match[1]);
+            console.log(match[2]);
+            console.log(match[3]);
+          }
+          const translationKey = match[1];
+          const defaultEnglishText = defaultText ? match[2] : null;
+          const namespace = defaultText ? match[3] : match[2] || "common";
+          const sourceTranslationFile = path.join(
+            LOCALES_DIR,
+            `${sourceLanguageCode}`,
+            `${namespace}.json`
+          );
+          const targetTranslationFile = path.join(TRANSLATION_DIR, `${namespace}.json`);
+          let translations = {};
+          if (fs.existsSync(targetTranslationFile)) {
+            translations = JSON.parse(fs.readFileSync(targetTranslationFile, "utf-8"));
+          }
+          if (!translations[translationKey]) {
+            const sourceTranslations = JSON.parse(fs.readFileSync(sourceTranslationFile, "utf-8"));
+            const sourceTranslationValue = sourceTranslations[translationKey];
+            if (translationService == "google") {
+              const translatedValue = await GoogleTranslate(
+                sourceLanguageCode,
+                targetLanguageCode,
+                sourceTranslationValue || defaultEnglishText
+              );
+              translations[translationKey] = translatedValue;
+              console.log(translationKey + ": " + translations[translationKey]);
+            }
+            if (translationService == "openai") {
+              let translatedValue = "";
+              if (sourceTranslationValue) {
+                const TRANSLATE_PROMPT = `Translate the \`${sourceTranslationValue}\` text using the \`${targetLanguageCode}\` language code then respond only with the translated text.`;
+                if (translationMethod == "text") {
+                  translatedValue = await translateViaTextCompletion(TRANSLATE_PROMPT);
+                } else {
+                  translatedValue = await translateViaChatCompletion(TRANSLATE_PROMPT);
+                }
+              } else {
+                translatedValue = await GoogleTranslate(
+                  sourceLanguageCode,
+                  targetLanguageCode,
+                  defaultEnglishText
+                );
+              }
+              translations[translationKey] = translatedValue;
+              console.log(translationKey + ": " + translations[translationKey]);
+            }
+            fs.writeFileSync(targetTranslationFile, JSON.stringify(translations, null, 2));
+          }
+        }
+      }
+    }
+  });
+};
+
+/*const collectAndTranslate = async (
   dirPath,
   sourceLanguageCode,
   targetLanguageCode,
@@ -79,7 +177,7 @@ const collectAndTranslate = async (
       }
     }
   });
-};
+};*/
 
 const onlyCollect = async (dirPath) => {
   const files = fs.readdirSync(dirPath);
@@ -244,7 +342,7 @@ const GoogleTranslate = async (sourceLanguageCode, targetLanguageCode, sourceTra
     })
     .catch((error) => console.log(error));
 
-  return translationResult;
+  return translationResult.replace(/^['"`]+|['"`]+$/g, "");
 };
 
 const translateViaChatCompletion = async (TRANSLATE_PROMPT) => {
@@ -253,7 +351,7 @@ const translateViaChatCompletion = async (TRANSLATE_PROMPT) => {
     temperature: 1,
     messages: [{ role: "user", content: TRANSLATE_PROMPT }],
   });
-  return translationResult.data.choices[0].message.content.replace(/^['",`]+|['",`]+$/g, "");
+  return translationResult.data.choices[0].message.content.replace(/^['"`]+|['"`]+$/g, "");
 };
 
 const translateViaTextCompletion = async (TRANSLATE_PROMPT) => {
@@ -266,5 +364,5 @@ const translateViaTextCompletion = async (TRANSLATE_PROMPT) => {
     frequency_penalty: 0,
     presence_penalty: 0,
   });
-  return translationResult.data.choices[0].text.split("\n\n")[1].replace(/^['",`]+|['",`]+$/g, "");
+  return translationResult.data.choices[0].text.split("\n\n")[1].replace(/^['"`]+|['"`]+$/g, "");
 };

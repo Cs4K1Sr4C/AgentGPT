@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "next-i18next";
+import { translate } from "../utils/translations";
 import { FaClipboard, FaImage, FaPause, FaPlay, FaSave } from "react-icons/fa";
 import PopIn from "./motions/popin";
 import Expand from "./motions/expand";
@@ -352,7 +353,7 @@ const MacWindowHeader = (props: HeaderProps) => {
               key="Agent"
               onClick={() => props.onSave?.("db")}
               icon={<FaSave size={12} />}
-              name={`${t("SAVE", { ns: "common" })}`}
+              name={`${translate("SAVE", "common")}`}
               styleClass={{
                 container: `relative bg-[#3a3a3a] md:w-20 text-center font-mono rounded-lg text-gray/50 border-[2px] border-white/30 font-bold transition-all sm:py-0.5 hover:border-[#1E88E5]/40 hover:bg-[#6b6b6b] focus-visible:outline-none focus:border-[#1E88E5]`,
               }}
@@ -393,9 +394,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
 
       {message.type == MESSAGE_TYPE_THINKING && (
         <span className="italic text-zinc-400">
-          {`${t("RESTART_IF_IT_TAKES_X_SEC", {
-            ns: "chat",
-          })}`}
+          {translate("RESTART_IF_IT_TAKES_X_SEC", "Restart if it takes more then 30 sec!", "chat")}
         </span>
       )}
 
